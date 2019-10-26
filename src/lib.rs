@@ -166,3 +166,16 @@ impl Sub<FakeClock> for FakeClock {
         Duration::from_millis(self.time_created - other.time_created)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_advance_time() {
+        const DUR: u64 = 5300;
+        let clock = FakeClock::now();
+        FakeClock::advance_time(DUR);
+        assert_eq!(Duration::from_millis(DUR), clock.elapsed());
+    }
+}
