@@ -1,13 +1,13 @@
 [package]
-authors = ["MaidSafe Developers <dev@maidsafe.net>"]
+authors = ["MaidSafe Developers <dev@maidsafe.net>", "Mingwei Samuel <mingwei.samuel@gmail.com>"]
 description = "Fake clock for deterministic testing of code depending on time."
-documentation = "https://docs.rs/fake_clock"
+documentation = "https://docs.rs/fake_instant"
 homepage = "https://maidsafe.net"
 license = "MIT OR BSD-3-Clause"
-name = "fake_clock"
+name = "fake_instant"
 readme = "README.md"
-repository = "https://github.com/maidsafe/fake_clock"
-version = "0.3.0"
+repository = "https://github.com/MingweiSamuel/fake_clock"
+version = "0.4.0"
 edition = "2018"
 
 [dependencies]
