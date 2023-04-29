@@ -1,19 +1,14 @@
-# fake_clock
+# fake_instant
 
-|Crate|Documentation|Linux/macOS|Windows|Issues|
-|:---:|:-----------:|:--------:|:-----:|:----:|
-|[![](http://meritbadge.herokuapp.com/fake_clock)](https://crates.io/crates/fake_clock)|[![Documentation](https://docs.rs/fake_clock/badge.svg)](https://docs.rs/fake_clock)|[![Build Status](https://travis-ci.com/maidsafe/fake_clock.svg?branch=master)](https://travis-ci.com/maidsafe/fake_clock)|[![Build status](https://ci.appveyor.com/api/projects/status/oq5s0j82ykvb52du/branch/master?svg=true)](https://ci.appveyor.com/project/MaidSafe-QA/fake-clock/branch/master)|[![Stories in Ready](https://badge.waffle.io/maidsafe/fake_clock.png?label=ready&title=Ready)](https://waffle.io/maidsafe/fake_clock)|
+[![crates.io](https://img.shields.io/crates/v/fake_instant.svg)](https://crates.io/crates/fake_instant)
+[![docs.rs](https://docs.rs/fake_instant/badge.svg)](https://docs.rs/fake_instant)
+[![gh-actions CI](https://github.com/MingweiSamuel/fake_instant/actions/workflows/ci.yml/badge.svg)](https://github.com/MingweiSamuel/fake_instant/actions/workflows/ci.yml)
 
-| [MaidSafe website](https://maidsafe.net) | [SAFE Dev Forum](https://forum.safedev.org) | [SAFE Network Forum](https://safenetforum.org) |
-|:----------------------------------------:|:-------------------------------------------:|:----------------------------------------------:|
-
-## Overview
-
-This crate supplies a `FakeClock` struct, which mimics the interface of `std::time::Instant` and enables full control over the flow of time as perceived by the code during testing.
+This crate supplies a `FakeInstant` struct, which mimics the interface of `std::time::Instant` and enables full control over the flow of time as perceived by the code during testing.
 
 ## License
 
-This SAFE Network library is dual-licensed under the Modified BSD ([LICENSE-BSD](LICENSE-BSD) https://opensource.org/licenses/BSD-3-Clause) or the MIT license ([LICENSE-MIT](LICENSE-MIT) http://opensource.org/licenses/MIT) at your option.
+This (former) SAFE Network library is dual-licensed under the Modified BSD ([LICENSE-BSD](LICENSE-BSD) https://opensource.org/licenses/BSD-3-Clause) or the MIT license ([LICENSE-MIT](LICENSE-MIT) http://opensource.org/licenses/MIT) at your option.
 
 ## Contribution
 

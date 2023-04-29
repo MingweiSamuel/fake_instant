@@ -12,189 +12,162 @@
 //! A crate providing a virtual clock mimicking `std::time::Instant`'s interface, enabling full
 //! control over the flow of time during testing.
 
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/maidsafe/QA/master/Images/maidsafe_logo.png",
-    html_favicon_url = "https://maidsafe.net/img/favicon.ico",
-    test(attr(forbid(warnings)))
-)]
-// For explanation of lint checks, run `rustc -W help` or see
-// https://github.com/maidsafe/QA/blob/master/Documentation/Rust%20Lint%20Checks.md
+// For explanation of lint checks, run `rustc -W help`.
 #![forbid(
     bad_style,
-    exceeding_bitshifts,
+    arithmetic_overflow,
     mutable_transmutes,
     no_mangle_const_items,
-    unknown_crate_types,
-    warnings
+    unknown_crate_types
 )]
 #![deny(
-    deprecated,
-    improper_ctypes,
     missing_docs,
-    non_shorthand_field_patterns,
     overflowing_literals,
-    plugin_as_library,
-    stable_features,
-    unconditional_recursion,
-    unknown_lints,
     unsafe_code,
-    unused,
-    unused_allocation,
-    unused_attributes,
-    unused_comparisons,
-    unused_features,
-    unused_parens,
-    while_true
-)]
-#![warn(
+    warnings,
     trivial_casts,
     trivial_numeric_casts,
     unused_extern_crates,
     unused_import_braces,
     unused_qualifications,
-    unused_results
-)]
-#![allow(
-    box_pointers,
-    missing_copy_implementations,
-    missing_debug_implementations,
-    variant_size_differences
+    unused_must_use
 )]
 
 use std::cell::Cell;
-use std::cmp::Ordering;
-use std::fmt;
-use std::ops::{Add, Sub};
-use std::time::Duration;
 use std::convert::TryInto;
+use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::time::Duration;
 
-/// Struct representing a fake instant
-#[derive(Clone, Copy)]
-pub struct FakeClock {
+thread_local! {
+    static FAKE_TIME: Cell<u64> = Default::default();
+}
+
+/// Struct representing a fake instant.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FakeInstant {
     time_created: u64,
 }
 
-thread_local! {
-    static LOCAL_TIME: Cell<u64> = Cell::new(0);
-}
-
-impl FakeClock {
-    /// Sets the thread-local fake time to the given value
-    pub fn set_time(time: u64) {
-        LOCAL_TIME.with(|t| {
-            t.set(time);
-        });
+impl FakeInstant {
+    /// Sets the thread-local fake time to the given value, returning the old
+    /// fake time.
+    pub fn set_time(time: u64) -> u64 {
+        FAKE_TIME.with(|c| c.replace(time))
     }
 
-    /// Advances the thread-local fake time by the given amount of milliseconds
-    pub fn advance_time(millis: u64) {
-        LOCAL_TIME.with(|t| {
-            t.set(t.get() + millis);
-        });
+    /// Advances the thread-local fake time by the given amount of
+    /// milliseconds, returns the new fake time.
+    pub fn advance_time(millis: u64) -> u64 {
+        FAKE_TIME.with(|c| {
+            let new_time = c.get() + millis;
+            c.set(new_time);
+            new_time
+        })
     }
 
-    /// Returns the current thread-local fake time
+    /// Returns the current thread-local fake time.
     pub fn time() -> u64 {
-        LOCAL_TIME.with(|t| t.get())
+        FAKE_TIME.with(|c| c.get())
     }
 
-    /// Returns a `FakeClock` instance representing the current instant.
+    /// Returns a `FakeInstant` instance representing the current thread-local
+    /// fake time.
     pub fn now() -> Self {
         let time = Self::time();
-        FakeClock { time_created: time }
+        Self { time_created: time }
     }
 
     /// Returns the duration that passed between `self` and `earlier`.
+    ///
+    /// Previously this panicked when `earlier` was later than `self`.
+    /// Currently this method returns a `Duration` of zero in that case. Future
+    /// versions may reintroduce the panic in some circumstances.
     pub fn duration_since(self, earlier: Self) -> Duration {
-        Duration::from_millis(self.time_created - earlier.time_created)
+        self.checked_duration_since(earlier).unwrap_or_default()
     }
 
-    /// Returns the amount of fake time elapsed from another `FakeClock` to
-    /// this one, or `None` if that `FakeClock` is earlier than this one.
-    pub fn checked_duration_since(&self, earlier: FakeClock) -> Option<Duration> {
-        self.time_created.checked_sub(earlier.time_created).map(Duration::from_millis)
+    /// Returns the amount of fake time elapsed from another `FakeInstant` to
+    /// this one, or `None` if that `FakeInstant` is earlier than this one.
+    pub fn checked_duration_since(&self, earlier: Self) -> Option<Duration> {
+        self.time_created
+            .checked_sub(earlier.time_created)
+            .map(Duration::from_millis)
     }
 
-    /// Returns the amount of fake time elapsed from another `FakeClock` to
-    /// this one, or zero duration if that `FakeClock` is earlier than this one.
-    pub fn saturating_duration_since(&self, earlier: FakeClock) -> Duration {
-        self.checked_duration_since(earlier).unwrap_or(Duration::new(0, 0))
+    /// Returns the amount of fake time elapsed from another `FakeInstant` to
+    /// this one, or zero duration if that `FakeInstant` is earlier than this
+    /// one.
+    pub fn saturating_duration_since(&self, earlier: Self) -> Duration {
+        self.checked_duration_since(earlier).unwrap_or_default()
     }
 
-    /// Returns how much fake time has elapsed since the creation of `self`.
+    /// Returns the duration of time between the creation of `self` until
+    /// the thread-local fake time.
+    ///
+    /// Sending a `FakeInstant` across threads will result in this being
+    /// computed relative to the destination thread's fake time.
+    ///
+    /// Previously this panicked when the current fakse time was earlier than
+    /// `self`. Currently this method returns a `Duration` of zero in that
+    /// case. Future versions may reintroduce the panic in some circumstances.
     pub fn elapsed(self) -> Duration {
         Duration::from_millis(Self::time() - self.time_created)
     }
 
     /// Returns `Some(t)` where `t` is the time `self + duration` if `t` can be
-    /// represented as `FakeClock`, `None` otherwise.
-    pub fn checked_add(&self, duration: Duration) -> Option<FakeClock> {
-        duration.as_millis()
+    /// represented as `FakeInstant`, `None` otherwise.
+    pub fn checked_add(&self, duration: Duration) -> Option<Self> {
+        duration
+            .as_millis()
             .checked_add(self.time_created as u128)
             .and_then(|time| time.try_into().ok())
-            .map(|time| FakeClock { time_created: time })
+            .map(|time| Self { time_created: time })
     }
 
     /// Returns `Some(t)` where `t` is the time `self - duration` if `t` can be
-    /// represented as `FakeClock`, `None` otherwise.
-    pub fn checked_sub(&self, duration: Duration) -> Option<FakeClock> {
-        duration.as_millis()
-            .try_into().ok()
+    /// represented as `FakeInstant`, `None` otherwise.
+    pub fn checked_sub(&self, duration: Duration) -> Option<Self> {
+        duration
+            .as_millis()
+            .try_into()
+            .ok()
             .and_then(|dur| self.time_created.checked_sub(dur))
-            .map(|time| FakeClock { time_created: time })
+            .map(|time| Self { time_created: time })
     }
 }
 
-impl PartialEq for FakeClock {
-    fn eq(&self, other: &FakeClock) -> bool {
-        self.time_created == other.time_created
+impl Add<Duration> for FakeInstant {
+    type Output = Self;
+    fn add(self, other: Duration) -> Self {
+        self.checked_add(other)
+            .expect("overflow when adding duration to instant")
     }
 }
 
-impl Eq for FakeClock {}
-
-impl PartialOrd for FakeClock {
-    fn partial_cmp(&self, other: &FakeClock) -> Option<Ordering> {
-        self.time_created.partial_cmp(&other.time_created)
+impl AddAssign<Duration> for FakeInstant {
+    fn add_assign(&mut self, rhs: Duration) {
+        *self = *self + rhs;
     }
 }
 
-impl Ord for FakeClock {
-    fn cmp(&self, other: &FakeClock) -> Ordering {
-        self.time_created.cmp(&other.time_created)
+impl Sub<Duration> for FakeInstant {
+    type Output = Self;
+    fn sub(self, other: Duration) -> Self {
+        self.checked_sub(other)
+            .expect("overflow when subtracting duration from instant")
     }
 }
 
-impl fmt::Debug for FakeClock {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            formatter,
-            "FakeClock {{ time_created: {} }}",
-            self.time_created
-        )
+impl SubAssign<Duration> for FakeInstant {
+    fn sub_assign(&mut self, rhs: Duration) {
+        *self = *self - rhs;
     }
 }
 
-impl Add<Duration> for FakeClock {
-    type Output = FakeClock;
-    fn add(mut self, other: Duration) -> FakeClock {
-        self.time_created += other.as_millis() as u64;
-        self
-    }
-}
-
-impl Sub<Duration> for FakeClock {
-    type Output = FakeClock;
-    fn sub(mut self, other: Duration) -> FakeClock {
-        self.time_created -= other.as_millis() as u64;
-        self
-    }
-}
-
-impl Sub<FakeClock> for FakeClock {
+impl Sub<Self> for FakeInstant {
     type Output = Duration;
-    fn sub(self, other: FakeClock) -> Duration {
-        Duration::from_millis(self.time_created - other.time_created)
+    fn sub(self, other: Self) -> Duration {
+        self.duration_since(other)
     }
 }
 
@@ -203,29 +176,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_auto_traits() {
+        use std::any::Any;
+        use std::panic::{RefUnwindSafe, UnwindSafe};
+
+        fn check_traits<T: 'static + RefUnwindSafe + Send + Sync + Unpin + UnwindSafe + Any>() {}
+        check_traits::<FakeInstant>();
+    }
+
+    #[test]
     fn test_advance_time() {
         const DUR: u64 = 5300;
-        let clock = FakeClock::now();
-        FakeClock::advance_time(DUR);
+        let clock = FakeInstant::now();
+        FakeInstant::advance_time(DUR);
         assert_eq!(Duration::from_millis(DUR), clock.elapsed());
     }
 
     #[test]
     fn test_checked_add_some() {
-        FakeClock::set_time(0);
+        FakeInstant::set_time(0);
 
-        let inst = FakeClock::now();
+        let inst = FakeInstant::now();
         let dur = Duration::from_millis(std::u64::MAX);
-        FakeClock::set_time(std::u64::MAX);
+        FakeInstant::set_time(std::u64::MAX);
 
-        assert_eq!(Some(FakeClock::now()), inst.checked_add(dur));
+        assert_eq!(Some(FakeInstant::now()), inst.checked_add(dur));
     }
 
     #[test]
     fn test_checked_add_none() {
-        FakeClock::set_time(1);
+        FakeInstant::set_time(1);
 
-        let inst = FakeClock::now();
+        let inst = FakeInstant::now();
         let dur = Duration::from_millis(std::u64::MAX);
 
         assert_eq!(None, inst.checked_add(dur));
@@ -233,20 +215,20 @@ mod tests {
 
     #[test]
     fn test_checked_sub_some() {
-        FakeClock::set_time(std::u64::MAX);
+        FakeInstant::set_time(std::u64::MAX);
 
-        let inst = FakeClock::now();
+        let inst = FakeInstant::now();
         let dur = Duration::from_millis(std::u64::MAX);
-        FakeClock::set_time(0);
+        FakeInstant::set_time(0);
 
-        assert_eq!(Some(FakeClock::now()), inst.checked_sub(dur));
+        assert_eq!(Some(FakeInstant::now()), inst.checked_sub(dur));
     }
 
     #[test]
     fn test_checked_sub_none() {
-        FakeClock::set_time(std::u64::MAX - 1);
+        FakeInstant::set_time(std::u64::MAX - 1);
 
-        let inst = FakeClock::now();
+        let inst = FakeInstant::now();
         let dur = Duration::from_millis(std::u64::MAX);
 
         assert_eq!(None, inst.checked_sub(dur));
@@ -254,43 +236,67 @@ mod tests {
 
     #[test]
     fn checked_duration_since_some() {
-        FakeClock::set_time(0);
-        let inst0 = FakeClock::now();
-        FakeClock::set_time(std::u64::MAX);
-        let inst_max = FakeClock::now();
+        FakeInstant::set_time(0);
+        let inst0 = FakeInstant::now();
+        FakeInstant::set_time(std::u64::MAX);
+        let inst_max = FakeInstant::now();
 
-        assert_eq!(Some(Duration::from_millis(std::u64::MAX)),
-            inst_max.checked_duration_since(inst0));
+        assert_eq!(
+            Some(Duration::from_millis(std::u64::MAX)),
+            inst_max.checked_duration_since(inst0)
+        );
     }
 
     #[test]
     fn checked_duration_since_none() {
-        FakeClock::set_time(1);
-        let inst1 = FakeClock::now();
-        FakeClock::set_time(0);
-        let inst0 = FakeClock::now();
+        FakeInstant::set_time(1);
+        let inst1 = FakeInstant::now();
+        FakeInstant::set_time(0);
+        let inst0 = FakeInstant::now();
 
         assert_eq!(None, inst0.checked_duration_since(inst1));
     }
 
     #[test]
     fn saturating_duration_since_nonzero() {
-        FakeClock::set_time(0);
-        let inst0 = FakeClock::now();
-        FakeClock::set_time(std::u64::MAX);
-        let inst_max = FakeClock::now();
+        FakeInstant::set_time(0);
+        let inst0 = FakeInstant::now();
+        FakeInstant::set_time(std::u64::MAX);
+        let inst_max = FakeInstant::now();
 
-        assert_eq!(Duration::from_millis(std::u64::MAX),
-            inst_max.saturating_duration_since(inst0));
+        assert_eq!(
+            Duration::from_millis(std::u64::MAX),
+            inst_max.saturating_duration_since(inst0)
+        );
     }
 
     #[test]
     fn saturating_duration_since_zero() {
-        FakeClock::set_time(1);
-        let inst1 = FakeClock::now();
-        FakeClock::set_time(0);
-        let inst0 = FakeClock::now();
+        FakeInstant::set_time(1);
+        let inst1 = FakeInstant::now();
+        FakeInstant::set_time(0);
+        let inst0 = FakeInstant::now();
 
         assert_eq!(Duration::new(0, 0), inst0.saturating_duration_since(inst1));
+    }
+
+    #[test]
+    fn test_debug() {
+        let inst = FakeInstant::now();
+        assert_eq!("FakeInstant { time_created: 0 }", format!("{:?}", inst));
+    }
+
+    #[test]
+    fn test_threads() {
+        FakeInstant::set_time(200);
+        let inst1 = FakeInstant::now();
+        assert!(std::thread::spawn(move || {
+            FakeInstant::set_time(500);
+            let inst2 = FakeInstant::now();
+            assert_eq!(Duration::from_millis(300), inst1.elapsed());
+            assert_eq!(Duration::from_millis(0), inst2.elapsed());
+        })
+        .join()
+        .is_ok());
     }
 }
